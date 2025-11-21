@@ -70,8 +70,8 @@ export class OracleScheduler {
       this.log("debug", "Publishing to Soroban contract...");
       const publishParams: PublishParams = {
         assetId: priceData.assetId,
-        price: priceData.price,
-        timestamp: priceData.timestamp,
+        price: BigInt(priceData.price),
+        timestamp: BigInt(priceData.timestamp),
         commit,
       };
       const result = await this.publisher.publishToOracle(publishParams);
@@ -89,14 +89,21 @@ export class OracleScheduler {
         throw new Error("Publish returned success=false");
       }
     } catch (error) {
-      this.log(
-        "error",
-        `Price update failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-      if (this.logLevel === "debug" && error instanceof Error) {
-        console.error(error.stack);
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : typeof error === "object" && error !== null
+          ? JSON.stringify(error, null, 2)
+          : String(error);
+
+      this.log("error", `Price update failed: ${errorMessage}`);
+
+      if (error instanceof Error) {
+        if (this.logLevel === "debug") {
+          console.error(error.stack);
+        }
+      } else {
+        console.error("Error details:", error);
       }
       throw error;
     }

@@ -1,3 +1,5 @@
+# Description
+This is a fast approach for doing the RWA oracle, but clearly in our roadmap we will need to add more security and leverage the APIs in a beter way.
               ┌────────────────────────────────────┐
               │      REAL-WORLD ASSET (RWA)        │
               │ Contract, Invoice, Real Estate...  │

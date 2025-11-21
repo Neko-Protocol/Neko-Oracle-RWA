@@ -26,7 +26,8 @@
     "circomlibjs": "^0.1.7",
     "dotenv": "^17.2.3",
     "express": "^4.18.2",
-    "node-cron": "^4.2.1"
+    "node-cron": "^4.2.1",
+    "oracle": "file:packages/oracle"
   },
   "devDependencies": {
     "@types/circomlibjs": "^0.1.6",
