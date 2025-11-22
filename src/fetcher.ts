@@ -8,11 +8,6 @@ export interface PriceData {
   assetId: string;
 }
 
-export interface DualPriceData {
-  price1: PriceData;
-  price2: PriceData;
-}
-
 export class PriceFetcher {
   private axiosInstance: AxiosInstance;
   private apiKey: string;
@@ -153,34 +148,6 @@ export class PriceFetcher {
           `Both price APIs failed. AlphaVantage: ${alphaVantageError}, Finnhub: ${finnhubError}`
         );
       }
-    }
-  }
-
-  /**
-   * Fetch prices from both APIs in parallel for ZK proof generation
-   * Returns both prices simultaneously for circuit verification
-   */
-  async fetchBothPrices(): Promise<DualPriceData> {
-    try {
-      const [price1Result, price2Result] = await Promise.allSettled([
-        this.retry(() => this.fetchFromAlphaVantage()),
-        this.retry(() => this.fetchFromFinnhub()),
-      ]);
-
-      // Extract successful results or throw errors
-      if (price1Result.status === 'rejected') {
-        throw new Error(`AlphaVantage failed: ${price1Result.reason}`);
-      }
-      if (price2Result.status === 'rejected') {
-        throw new Error(`Finnhub failed: ${price2Result.reason}`);
-      }
-
-      return {
-        price1: price1Result.value,
-        price2: price2Result.value,
-      };
-    } catch (error) {
-      throw new Error(`Failed to fetch both prices: ${error}`);
     }
   }
 }

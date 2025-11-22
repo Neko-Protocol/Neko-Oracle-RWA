@@ -4,15 +4,25 @@ import {
   Networks,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { Client, type Asset } from "oracle";
+import type { Client as OracleClient, Asset } from "oracle";
+
+type OracleModule = typeof import("oracle");
+
+const loadOracleModule = (() => {
+  let cached: Promise<OracleModule> | null = null;
+  return () => {
+    if (!cached) {
+      cached = new Function("return import('oracle')")() as Promise<OracleModule>;
+    }
+    return cached;
+  };
+})();
 
 export interface PublishParams {
   assetId: string;
   price: number;
   timestamp: number;
   commit: string;
-  proof?: string;  // Hex-encoded ZK proof (optional for backward compatibility)
-  proofPublicInputs?: string;  // Hex-encoded public inputs from proof
 }
 
 export interface PublishResult {
@@ -21,27 +31,47 @@ export interface PublishResult {
 }
 
 export class SorobanPublisher {
-  private client: Client;
+  private client?: OracleClient;
+  private clientPromise: Promise<OracleClient>;
   private server: rpc.Server;
   private keypair: Keypair;
   private networkPassphrase: string;
+  private contractId: string;
+  private rpcUrl: string;
+  private maxRetries: number = 3;
+  private retryDelay: number = 1000;
+
   constructor(rpcUrl: string, contractId: string, secretKey: string) {
+    this.rpcUrl = rpcUrl;
+    this.contractId = contractId;
     this.keypair = Keypair.fromSecret(secretKey);
 
     this.networkPassphrase = rpcUrl.includes("testnet")
       ? Networks.TESTNET
       : Networks.FUTURENET; // fallback
 
-    this.client = new Client({
-      rpcUrl,
-      contractId,
-      publicKey: this.keypair.publicKey(),
-      networkPassphrase: this.networkPassphrase,
-    });
-
     this.server = new rpc.Server(rpcUrl, {
       allowHttp: rpcUrl.startsWith("http://"),
     });
+
+    this.clientPromise = loadOracleModule()
+      .then(({ Client }) => {
+        const client = new Client({
+          contractId,
+          rpcUrl,
+          networkPassphrase: this.networkPassphrase,
+          allowHttp: rpcUrl.startsWith("http://"),
+          publicKey: this.keypair.publicKey(),
+          signTransaction: this.createTransactionSigner(),
+          server: this.server,
+        });
+        this.client = client;
+        return client;
+      })
+      .catch((error) => {
+        console.error("[PUBLISHER] Failed to initialize oracle contract client", error);
+        throw error;
+      });
 
     console.log("[PUBLISHER] Running in TESTNET");
     console.log("[PUBLISHER] Contract:", contractId);
@@ -53,7 +83,47 @@ export class SorobanPublisher {
     return { tag: "Other", values: [assetId] };
   }
 
+  /**
+   * Retry wrapper for API calls
+   */
+  private async retry<T>(
+    fn: () => Promise<T>,
+    retries: number = this.maxRetries
+  ): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      if (retries <= 0) {
+        throw error;
+      }
+      console.warn(`Retry attempt ${this.maxRetries - retries + 1}/${this.maxRetries}`);
+      await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
+      return this.retry(fn, retries - 1);
+    }
+  }
+
+  private async getClient(): Promise<OracleClient> {
+    if (this.client) {
+      return this.client;
+    }
+    return this.clientPromise;
+  }
+
+  private createTransactionSigner() {
+    return async (xdr: string, opts?: { networkPassphrase?: string }) => {
+      const passphrase = opts?.networkPassphrase ?? this.networkPassphrase;
+      const tx = TransactionBuilder.fromXDR(xdr, passphrase);
+      tx.sign(this.keypair);
+      return {
+        signedTxXdr: tx.toXDR(),
+        signerAddress: this.keypair.publicKey(),
+      };
+    };
+  }
+
   async publishToOracle(params: PublishParams): Promise<PublishResult> {
+    const client = await this.getClient();
+
     return this.retry(async () => {
       // Log the data that would be published
       console.log("[PUBLISHER] Would publish to Oracle contract:");
@@ -68,125 +138,39 @@ export class SorobanPublisher {
         ).toISOString()})`
       );
       console.log(`  Commit: ${params.commit}`);
-      
-      // Log ZK proof data if present
-      if (params.proof) {
-        console.log(`  ZK Proof: ${params.proof.slice(0, 64)}... (${params.proof.length / 2} bytes)`);
-        console.log(`  Proof Public Inputs: ${params.proofPublicInputs || 'N/A'}`);
-        console.log(`  [ZK-VERIFIED] Price verified through zero-knowledge proof`);
-      } else {
-        console.log(`  [WARNING] No ZK proof provided - publishing without cryptographic verification`);
-      }
-      
-      console.log(`  Signer: ${this.publicKey}`);
+      console.log(`  Signer: ${this.keypair.publicKey()}`);
 
-      // Simulate transaction hash
-      const mockTxHash = "0".repeat(64); // Mock 64-char hex hash
-
-      // TODO: Uncomment and implement actual Soroban transaction
-      /*
-      const contract = new Contract(this.contractId);
-      const sourceAccount = await this.server.getAccount(
-        this.keypair.publicKey()
-      );
-
-      // Build contract method call arguments as ScVal
-      const methodArgs = [
-        this.stringToScVal(params.assetId),
-        this.numberToScVal(params.price),
-        this.numberToScVal(params.timestamp),
-        this.stringToScVal(params.commit),
-        // TODO: Add ZK proof to contract call when contract supports it
-        // this.stringToScVal(params.proof || ''),
-        // this.stringToScVal(params.proofPublicInputs || ''),
-      ];
-
-      // Build transaction with contract invocation
-      const transactionBuilder = new TransactionBuilder(sourceAccount, {
-        fee: "100", // Base fee
-        networkPassphrase: this.networkPassphrase,
+      const assembledTx = await client.set_asset_price({
+        asset_id: this.toAsset(params.assetId),
+        price: BigInt(params.price),
+        timestamp: BigInt(params.timestamp),
       });
 
-      const operation = contract.call("update_price", ...methodArgs);
-      transactionBuilder.addOperation(operation);
-      transactionBuilder.setTimeout(30);
+      console.log("[PUBLISHER] Transaction simulated; signing and submitting...");
+      const sentTx = await assembledTx.signAndSend();
 
-      // Build the transaction
-      let transaction = transactionBuilder.build();
-
-      // Simulate transaction to get resource estimates
-      const simulateResult = await this.server.simulateTransaction(transaction);
-
-      if (SorobanRpc.Api.isSimulationError(simulateResult)) {
-        throw new Error(`Simulation error: ${JSON.stringify(simulateResult)}`);
+      const finalResponse = sentTx.getTransactionResponse;
+      if (!finalResponse) {
+        throw new Error("Transaction was submitted but no final response was returned");
+      }
+      if (finalResponse.status !== "SUCCESS") {
+        throw new Error(`Transaction completed with status ${finalResponse.status}`);
       }
 
-      // Assemble transaction (add simulation results)
-      // Note: assembleTransaction helper may vary by SDK version
-      // If this fails, you may need to manually set resources using:
-      // transaction.setSorobanData(simulateResult.transactionData.build())
-      let assembledTransaction: any;
-      if (typeof SorobanRpc.assembleTransaction === "function") {
-        assembledTransaction = SorobanRpc.assembleTransaction(
-          transaction,
-          simulateResult
-        ).build();
-      } else {
-        // Fallback: manually set resources
-        transaction.setSorobanData(simulateResult.transactionData.build());
-        assembledTransaction = transaction;
-      }
-    );
+      const txHash =
+        finalResponse.txHash ??
+        sentTx.sendTransactionResponse?.hash;
 
-    // 2) SIGN (new SDK requires signTransaction wrapper)
-    await tx.sign({
-      signTransaction: async (xdr: string) => {
-        // Parse XDR string to Transaction, sign it, and return signed XDR
-        const transaction = TransactionBuilder.fromXDR(
-          xdr,
-          this.networkPassphrase
-        );
-        transaction.sign(this.keypair);
-        return {
-          signedTxXdr: transaction.toXDR(),
-        };
-      },
+      if (!txHash) {
+        throw new Error("Unable to determine transaction hash after submission");
+      }
+
+      console.log(`[PUBLISHER] Soroban transaction succeeded: ${txHash}`);
+
+      return {
+        txHash,
+        success: true,
+      };
     });
-
-    // 3) SEND TX
-    const sendResult = await tx.send();
-
-    // Get hash from sendTransactionResponse
-    const txHash = sendResult.sendTransactionResponse?.hash;
-    if (!txHash) {
-      console.error("[PUBLISH] Failed to get transaction hash");
-      console.error(
-        "[PUBLISH] Send result:",
-        JSON.stringify(sendResult, null, 2)
-      );
-      throw new Error("Transaction send failed: no hash returned");
-    }
-
-    console.log("[PUBLISH] TX sent. Hash:", txHash);
-
-    // 4) Wait for confirmation (poll)
-    let result = await this.server.getTransaction(txHash);
-
-    while (result.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      result = await this.server.getTransaction(txHash);
-    }
-
-    if (result.status === rpc.Api.GetTransactionStatus.FAILED) {
-      console.error("[PUBLISH] TX FAILED:", JSON.stringify(result));
-      throw new Error("Soroban transaction failed");
-    }
-
-    console.log("[PUBLISH] TX confirmed on TESTNET.");
-
-    return {
-      txHash: txHash,
-      success: true,
-    };
   }
 }

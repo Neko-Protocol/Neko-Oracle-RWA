@@ -1,9 +1,10 @@
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, MuxedAddress, String, Symbol, panic_with_error};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, MuxedAddress, String, Symbol, Vec, panic_with_error};
 
 use crate::admin::Admin;
 use crate::error::Error;
 use crate::interfaces::{TokenInterface, TokenInterfaceImpl};
 use crate::oracle::Oracle;
+use crate::zk_verifier;
 
 /// RWA Token Contract
 #[contract]
@@ -135,6 +136,133 @@ impl RWATokenContract {
     pub fn get_regulatory_info(env: Env) -> Result<crate::rwa_oracle::RegulatoryInfo, Error> {
         Oracle::get_regulatory_info(&env)
     }
+
+    // === ZK PROOF VERIFICATION METHODS ===
+
+    /// Mint tokens with ZK proof verification
+    ///
+    /// This method mints tokens only after verifying a ZK proof that certifies:
+    /// 1. The price comes from multiple independent data sources
+    /// 2. The sources agree within an acceptable variance (e.g., ±7%)
+    /// 3. The price data has not been tampered with
+    ///
+    /// # Arguments
+    /// * `to` - Recipient address for minted tokens
+    /// * `amount` - Number of tokens to mint
+    /// * `price` - Verified average price (7 decimals, e.g., 3005000000 = $300.50)
+    /// * `timestamp` - Unix timestamp when price was fetched
+    /// * `commitment` - Poseidon hash commitment of the price data
+    /// * `proof_data` - Serialized Noir/UltraHonk ZK proof
+    /// * `public_inputs` - Public circuit outputs (avg_price, etc.)
+    ///
+    /// # Security
+    /// - Proof is verified for structural validity
+    /// - Public inputs are checked against submitted price
+    /// - Proof hash is stored to prevent replay attacks
+    /// - Requires admin authorization
+    pub fn mint_with_proof(
+        env: Env,
+        to: Address,
+        amount: i128,
+        price: i128,
+        timestamp: u64,
+        commitment: Bytes,
+        proof_data: Bytes,
+        public_inputs: Vec<u32>,
+    ) -> Result<(), Error> {
+        // Verify the ZK proof
+        let proof_valid = zk_verifier::verify_price_proof(
+            &env,
+            &proof_data,
+            &public_inputs,
+            price,
+            timestamp,
+        )?;
+
+        if !proof_valid {
+            return Err(Error::ProofVerificationFailed);
+        }
+
+        // Store ZK proof metadata for audit trail
+        let proof_hash = env.crypto().keccak256(&proof_data).into();
+        Self::store_mint_metadata(&env, &to, amount, price, timestamp, commitment, proof_hash);
+
+        // Mint tokens using admin function
+        Admin::mint(&env, &to, amount);
+
+        Ok(())
+    }
+
+    /// Store ZK proof metadata for minting operations (audit trail)
+    fn store_mint_metadata(
+        env: &Env,
+        recipient: &Address,
+        amount: i128,
+        price: i128,
+        timestamp: u64,
+        commitment: Bytes,
+        proof_hash: BytesN<32>,
+    ) {
+        use soroban_sdk::symbol_short;
+        
+        // Store mint record with ZK verification
+        let mint_id = env.ledger().sequence(); // Use ledger sequence as unique ID
+        let key = (symbol_short!("mint"), mint_id);
+        
+        let metadata = (
+            recipient.clone(),
+            amount,
+            price,
+            timestamp,
+            commitment,
+            Bytes::from_array(env, &proof_hash.to_array()),
+            true, // verified flag
+        );
+        
+        env.storage().persistent().set(&key, &metadata);
+        
+        // Extend TTL for audit trail
+        let max_ttl = env.storage().max_ttl();
+        env.storage().persistent().extend_ttl(&key, max_ttl, max_ttl);
+    }
+
+    /// Get mint metadata including ZK proof information
+    ///
+    /// Returns tuple: (recipient, amount, price, timestamp, commitment, proof_hash, verified)
+    pub fn get_mint_metadata(
+        env: Env,
+        mint_id: u32,
+    ) -> Option<(Address, i128, i128, u64, Bytes, Bytes, bool)> {
+        use soroban_sdk::symbol_short;
+        let key = (symbol_short!("mint"), mint_id);
+        env.storage().persistent().get(&key)
+    }
+
+    /// Check if a specific mint was ZK-verified
+    pub fn is_mint_verified(env: Env, mint_id: u32) -> bool {
+        if let Some(metadata) = Self::get_mint_metadata(env, mint_id) {
+            metadata.6 // verified flag
+        } else {
+            false
+        }
+    }
+
+    /// Get the commitment hash for a specific mint
+    pub fn get_mint_commitment(env: Env, mint_id: u32) -> Option<Bytes> {
+        Self::get_mint_metadata(env, mint_id).map(|m| m.4)
+    }
+
+    /// Check if a proof hash has been used (anti-replay)
+    pub fn is_proof_used(env: Env, proof_hash: BytesN<32>) -> bool {
+        zk_verifier::is_proof_used(&env, &proof_hash)
+    }
+
+    /// Get when a proof was first used
+    pub fn get_proof_usage_timestamp(env: Env, proof_hash: BytesN<32>) -> Option<u64> {
+        zk_verifier::get_proof_usage_timestamp(&env, &proof_hash)
+    }
+
+    // === END ZK METHODS ===
 }
 
 // Standard Token Interface implementation

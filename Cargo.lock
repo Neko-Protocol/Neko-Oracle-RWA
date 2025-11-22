@@ -1050,14 +1050,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rwa-orchestrator"
-version = "0.0.0"
-dependencies = [
- "rwa-token",
- "soroban-sdk",
-]
-
-[[package]]
 name = "rwa-token"
 version = "1.0.0"
 dependencies = [

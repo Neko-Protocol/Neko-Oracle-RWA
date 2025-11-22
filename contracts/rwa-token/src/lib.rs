@@ -7,6 +7,7 @@ mod interfaces;
 mod oracle;
 mod storage;
 mod types;
+mod zk_verifier;
 
 pub use error::Error;
 
