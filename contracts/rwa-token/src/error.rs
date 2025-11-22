@@ -1,3 +1,4 @@
+
 use soroban_sdk::contracterror;
 
 #[contracterror]
@@ -45,33 +46,4 @@ pub enum Error {
 
     /// Contract is already initialized
     AlreadyInitialized = 14,
-
-    // === ZK Proof Verification Errors ===
-    
-    /// Empty proof data provided
-    EmptyProof = 100,
-
-    /// No public inputs provided
-    NoPublicInput = 101,
-
-    /// Proof size is invalid (too small or corrupted)
-    BadProofLen = 102,
-
-    /// Proof data is all zeros (corrupted)
-    ZeroProof = 103,
-
-    /// Price from proof doesn't match submitted price
-    PriceMismatch = 104,
-
-    /// Timestamp from proof doesn't match submitted timestamp
-    TimestampMismatch = 105,
-
-    /// Proof has already been used (replay attack prevention)
-    ProofAlreadyUsed = 106,
-
-    /// Invalid public inputs format
-    InvalidPublicInputs = 107,
-
-    /// ZK proof verification failed
-    ProofVerificationFailed = 108,
 }
