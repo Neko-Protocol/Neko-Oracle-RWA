@@ -159,24 +159,17 @@ impl TokenInterface for RWATokenContract {
     }
 
     fn transfer(env: Env, from: Address, to: MuxedAddress, amount: i128) {
-
-        // Oracle::check_compliance_before_transfer(&env, &from, &to, amount)
-        //     .unwrap_or_else(|e| panic_with_error!(&env, e));
         // Check compliance (SEP-0008)
-        // For DEX compatibility, we allow transfers even if compliance check fails
-        // The compliance check is informational only for DEX integrations
-        let _ = Oracle::check_compliance_before_transfer(&env, &from, &to.address(), amount);
+        Oracle::check_compliance_before_transfer(&env, &from, &to.address(), amount)
+            .unwrap_or_else(|e| panic_with_error!(&env, e));
 
         TokenInterfaceImpl::transfer(&env, &from, &to.address(), amount);
     }
 
     fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        // Oracle::check_compliance_before_transfer(&env, &from, &to, amount)
-        //     .unwrap_or_else(|e| panic_with_error!(&env, e));
         // Check compliance (SEP-0008)
-        // For DEX compatibility, we allow transfers even if compliance check fails
-        // The compliance check is informational only for DEX integrations
-        let _ = Oracle::check_compliance_before_transfer(&env, &from, &to, amount);
+        Oracle::check_compliance_before_transfer(&env, &from, &to, amount)
+            .unwrap_or_else(|e| panic_with_error!(&env, e));
 
         TokenInterfaceImpl::transfer_from(&env, &spender, &from, &to, amount);
     }
