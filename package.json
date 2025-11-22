@@ -9,6 +9,13 @@
     "dev": "ts-node src/index.ts",
     "check-env": "ts-node src/check-env.ts",
     "prestart": "npm run check-env",
+    "compile-circuit": "cd src/circuits && nargo compile",
+    "check-circuit": "cd src/circuits && nargo check",
+    "execute-circuit": "cd src/circuits && nargo execute",
+    "prove-bb": "cd src/circuits && bb prove -b ./target/circuits.json -w ./target/circuits.gz -o ./target",
+    "write-vk": "cd src/circuits && bb write_vk -b ./target/circuits.json -o ./target",
+    "verify-bb": "cd src/circuits && bb verify -p ./target/proof -k ./target/vk",
+    "circuit-full": "npm run compile-circuit && npm run execute-circuit && npm run write-vk && npm run prove-bb && npm run verify-bb",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -21,11 +28,14 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@noir-lang/backend_barretenberg": "^0.36.0",
+    "@noir-lang/noir_js": "^1.0.0-beta.15",
     "@stellar/stellar-sdk": "^14.3.3",
     "axios": "^1.13.2",
     "circomlibjs": "^0.1.7",
     "dotenv": "^17.2.3",
     "express": "^4.18.2",
+    "finnhub": "^2.0.11",
     "node-cron": "^4.2.1",
     "oracle": "file:packages/oracle"
   },

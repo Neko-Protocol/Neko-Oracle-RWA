@@ -1,6 +1,6 @@
 import * as cron from "node-cron";
-import { PriceFetcher, PriceData } from "./fetcher";
-import { generateCommit, debugCommitInputs } from "./commit";
+import { PriceFetcher, PriceData, DualPriceData } from "./fetcher";
+import { generateCommit, generateCommitWithProof, debugCommitInputs } from "./commit";
 import { SorobanPublisher, PublishParams } from "./publisher";
 
 export interface SchedulerConfig {
@@ -9,6 +9,7 @@ export interface SchedulerConfig {
   cronExpression?: string;
   intervalSeconds?: number; // Alternative to cron: interval in seconds
   logLevel?: string;
+  useZKProof?: boolean; // Enable ZK proof verification (default: true)
 }
 
 export class OracleScheduler {
@@ -17,6 +18,7 @@ export class OracleScheduler {
   private cronExpression: string | null;
   private intervalSeconds: number | null;
   private logLevel: string;
+  private useZKProof: boolean;
   private cronJob: cron.ScheduledTask | null = null;
   private intervalId: NodeJS.Timeout | null = null;
 
@@ -26,6 +28,7 @@ export class OracleScheduler {
     this.cronExpression = config.cronExpression || null;
     this.intervalSeconds = config.intervalSeconds || null;
     this.logLevel = config.logLevel || "info";
+    this.useZKProof = config.useZKProof !== false; // Default to true
   }
 
   /**
@@ -42,51 +45,101 @@ export class OracleScheduler {
     try {
       this.log("info", "Starting price update cycle...");
 
-      // Step 1: Fetch price
-      this.log("debug", "Fetching price data...");
-      const priceData: PriceData = await this.priceFetcher.fetchPrice();
-      this.log(
-        "info",
-        `Price fetched: ${priceData.price / 1e7} for ${priceData.assetId}`
-      );
+      if (this.useZKProof) {
+        // ZK Proof-verified workflow
+        this.log("debug", "Fetching prices from both APIs...");
+        const dualPrices: DualPriceData = await this.priceFetcher.fetchBothPrices();
+        
+        this.log(
+          "info",
+          `Prices fetched - API1: ${dualPrices.price1.price / 1e7}, API2: ${dualPrices.price2.price / 1e7} for ${dualPrices.price1.assetId}`
+        );
 
-      // Step 2: Generate commitment
-      this.log("debug", "Generating commitment...");
-      if (this.logLevel === "debug") {
-        debugCommitInputs(
+        // Use the average timestamp from both APIs
+        const timestamp = Math.floor((dualPrices.price1.timestamp + dualPrices.price2.timestamp) / 2);
+
+        // Generate commitment with ZK proof verification
+        this.log("debug", "Generating ZK proof and commitment...");
+        const commitWithProof = await generateCommitWithProof(
+          dualPrices,
+          timestamp,
+          dualPrices.price1.assetId
+        );
+
+        this.log("info", `ZK Proof verified! Average price: ${commitWithProof.verifiedPrice / 1e7}`);
+        this.log("info", `Commitment generated: ${commitWithProof.commitment}`);
+
+        // Publish to Oracle with ZK proof
+        this.log("debug", "Publishing to Soroban contract with ZK proof...");
+        const publishParams: PublishParams = {
+          assetId: commitWithProof.assetId,
+          price: commitWithProof.verifiedPrice,
+          timestamp: commitWithProof.timestamp,
+          commit: commitWithProof.commitment,
+          proof: commitWithProof.proof.proofHex,
+          proofPublicInputs: commitWithProof.proof.publicInputsHex,
+        };
+        const result = await this.publisher.publishToOracle(publishParams);
+
+        if (result.success) {
+          this.log("info", `Price update successful! TX: ${result.txHash}`);
+          return {
+            txHash: result.txHash,
+            price: commitWithProof.verifiedPrice,
+            timestamp: commitWithProof.timestamp,
+            assetId: commitWithProof.assetId,
+            commit: commitWithProof.commitment,
+          };
+        } else {
+          throw new Error("Publish returned success=false");
+        }
+      } else {
+        // Legacy workflow without ZK proof (fallback)
+        this.log("debug", "Fetching price data (legacy mode)...");
+        const priceData: PriceData = await this.priceFetcher.fetchPrice();
+        this.log(
+          "info",
+          `Price fetched: ${priceData.price / 1e7} for ${priceData.assetId}`
+        );
+
+        // Generate commitment
+        this.log("debug", "Generating commitment...");
+        if (this.logLevel === "debug") {
+          debugCommitInputs(
+            priceData.price,
+            priceData.timestamp,
+            priceData.assetId
+          );
+        }
+        const commit = await generateCommit(
           priceData.price,
           priceData.timestamp,
           priceData.assetId
         );
-      }
-      const commit = await generateCommit(
-        priceData.price,
-        priceData.timestamp,
-        priceData.assetId
-      );
-      this.log("info", `Commitment generated: ${commit}`);
+        this.log("info", `Commitment generated: ${commit}`);
 
-      // Step 3: Publish to Oracle
-      this.log("debug", "Publishing to Soroban contract...");
-      const publishParams: PublishParams = {
-        assetId: priceData.assetId,
-        price: BigInt(priceData.price),
-        timestamp: BigInt(priceData.timestamp),
-        commit,
-      };
-      const result = await this.publisher.publishToOracle(publishParams);
-
-      if (result.success) {
-        this.log("info", `Price update successful! TX: ${result.txHash}`);
-        return {
-          txHash: result.txHash,
+        // Publish to Oracle
+        this.log("debug", "Publishing to Soroban contract...");
+        const publishParams: PublishParams = {
+          assetId: priceData.assetId,
           price: priceData.price,
           timestamp: priceData.timestamp,
-          assetId: priceData.assetId,
           commit,
         };
-      } else {
-        throw new Error("Publish returned success=false");
+        const result = await this.publisher.publishToOracle(publishParams);
+
+        if (result.success) {
+          this.log("info", `Price update successful! TX: ${result.txHash}`);
+          return {
+            txHash: result.txHash,
+            price: priceData.price,
+            timestamp: priceData.timestamp,
+            assetId: priceData.assetId,
+            commit,
+          };
+        } else {
+          throw new Error("Publish returned success=false");
+        }
       }
     } catch (error) {
       const errorMessage =

@@ -1,4 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
+// @ts-ignore - Finnhub doesn't have proper TypeScript types
+const finnhub = require('finnhub');
 
 export interface PriceData {
   price: number;
@@ -6,19 +8,30 @@ export interface PriceData {
   assetId: string;
 }
 
+export interface DualPriceData {
+  price1: PriceData;
+  price2: PriceData;
+}
+
 export class PriceFetcher {
   private axiosInstance: AxiosInstance;
   private apiKey: string;
+  private finnhubApiKey: string;
   private assetId: string;
   private maxRetries: number = 3;
   private retryDelay: number = 2000; // 2 seconds
+  private finnhubClient: any;
 
-  constructor(apiKey: string, assetId: string) {
+  constructor(apiKey: string, assetId: string, finnhubApiKey: string) {
     this.apiKey = apiKey;
+    this.finnhubApiKey = finnhubApiKey;
     this.assetId = assetId;
     this.axiosInstance = axios.create({
       timeout: 10000,
     });
+
+    // Initialize Finnhub client with API key
+    this.finnhubClient = new finnhub.DefaultApi(this.finnhubApiKey);
   }
 
   /**
@@ -50,10 +63,38 @@ export class PriceFetcher {
   }
 
   /**
-   * Fetch price from Finnhub API (alternative)
+   * Fetch price from Finnhub API (using SDK)
    */
   private async fetchFromFinnhub(): Promise<PriceData> {
-    const url = `https://finnhub.io/api/v1/quote`;
+    return new Promise((resolve, reject) => {
+      this.finnhubClient.quote(this.assetId, (error: any, data: any, response: any) => {
+        if (error) {
+          reject(new Error(`Finnhub SDK error: ${error}`));
+          return;
+        }
+
+        if (!data || !data.c || data.c === 0) {
+          reject(new Error(`Invalid response from Finnhub SDK: ${JSON.stringify(data)}`));
+          return;
+        }
+
+        const price = data.c; // Current price
+        const timestamp = data.t || Math.floor(Date.now() / 1000);
+
+        resolve({
+          price: Math.round(price * 1e7), // Multiply by 1e7 to avoid floats
+          timestamp,
+          assetId: this.assetId,
+        });
+      });
+    });
+  }
+
+  /**
+   * Fetch price from Marketstack API
+   */
+  private async fetchFromMarketstack(): Promise<PriceData> {
+    const url = `http://api.marketstack.com/v1/eod/latest`;
     const response = await this.axiosInstance.get(url, {
       params: {
         symbol: this.assetId,
@@ -114,5 +155,34 @@ export class PriceFetcher {
       }
     }
   }
+
+  /**
+   * Fetch prices from both APIs in parallel for ZK proof generation
+   * Returns both prices simultaneously for circuit verification
+   */
+  async fetchBothPrices(): Promise<DualPriceData> {
+    try {
+      const [price1Result, price2Result] = await Promise.allSettled([
+        this.retry(() => this.fetchFromAlphaVantage()),
+        this.retry(() => this.fetchFromFinnhub()),
+      ]);
+
+      // Extract successful results or throw errors
+      if (price1Result.status === 'rejected') {
+        throw new Error(`AlphaVantage failed: ${price1Result.reason}`);
+      }
+      if (price2Result.status === 'rejected') {
+        throw new Error(`Finnhub failed: ${price2Result.reason}`);
+      }
+
+      return {
+        price1: price1Result.value,
+        price2: price2Result.value,
+      };
+    } catch (error) {
+      throw new Error(`Failed to fetch both prices: ${error}`);
+    }
+  }
 }
+
 

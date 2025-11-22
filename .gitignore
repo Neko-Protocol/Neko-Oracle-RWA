@@ -1,6 +1,13 @@
 node_modules
 .env
 
+# Noir circuit artifacts
+src/circuits/Prover.toml
+src/circuits/Verifier.toml
+src/circuits/circuit.json
+
+/dist
+
 /target
 .DS_Store
 **/.DS_Store

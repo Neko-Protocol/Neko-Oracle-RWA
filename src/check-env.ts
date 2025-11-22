@@ -15,7 +15,12 @@ const envVars: EnvVar[] = [
   {
     name: "API_KEY",
     required: true,
-    description: "AlphaVantage or Finnhub API key",
+    description: "AlphaVantage API key",
+  },
+  {
+    name: "FINNHUB_API_KEY",
+    required: true,
+    description: "Finnhub API key",
   },
   {
     name: "ASSET_ID",

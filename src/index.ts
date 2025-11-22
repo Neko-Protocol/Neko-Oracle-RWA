@@ -10,6 +10,7 @@ dotenv.config();
 // Validate required environment variables
 const requiredEnvVars = [
   "API_KEY",
+  "FINNHUB_API_KEY",
   "ASSET_ID",
   "SOROBAN_RPC",
   "ORACLE_CONTRACT_ID",
@@ -28,7 +29,8 @@ if (missingVars.length > 0) {
 // Initialize components
 const priceFetcher = new PriceFetcher(
   process.env.API_KEY!,
-  process.env.ASSET_ID!
+  process.env.ASSET_ID!,
+  process.env.FINNHUB_API_KEY!,
 );
 
 const publisher = new SorobanPublisher(
