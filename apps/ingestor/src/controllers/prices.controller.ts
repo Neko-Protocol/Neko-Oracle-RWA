@@ -1,5 +1,6 @@
 import { Controller, Get, Logger } from '@nestjs/common';
-import { PriceFetcherService, RawPrice } from '../services/price-fetcher.service';
+import { RawPrice } from '@oracle-stocks/shared';
+import { PriceFetcherService } from '../services/price-fetcher.service';
 
 @Controller('prices')
 export class PricesController {
