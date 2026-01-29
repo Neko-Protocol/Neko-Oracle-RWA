@@ -11,6 +11,15 @@ The aggregator service is responsible for:
 - Aggregating prices using weighted averages or median calculations
 - Producing a single consensus price per stock symbol
 
+## Features
+
+### Data Reception Layer
+Implemented via `DataReceptionService`, this layer connects to Ingestor services to receive real-time and historical data.
+- **WebSocket Client**: Real-time price streaming with exponential backoff reconnection.
+- **HTTP Fallback**: Retrieval of historical data and latest price snapshots.
+- **Event-Driven**: Emits `price.received` events using `EventEmitter2`.
+- **Validation**: Schema-based validation using `class-validator`.
+
 ## Getting Started
 
 ### Prerequisites
