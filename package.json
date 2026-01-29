@@ -1,5 +1,5 @@
 {
-  "name": "Neko-Oracle-RWA",
+  "name": "neko-oracle-rwa",
   "private": true,
   "scripts": {
     "build": "turbo run build",
