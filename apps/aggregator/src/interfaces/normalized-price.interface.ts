@@ -35,8 +35,9 @@ export interface NormalizationMetadata {
 /**
  * Represents a fully normalized price record with standard formatting
  * and metadata for audit/tracking purposes.
+ * Used as output from the normalization service.
  */
-export interface NormalizedPrice {
+export interface NormalizedPriceRecord {
   /** Normalized ticker symbol (e.g., 'AAPL' - stripped of exchange suffixes) */
   symbol: string;
 
@@ -54,6 +55,9 @@ export interface NormalizedPrice {
 
   /** Metadata for tracking and audit purposes */
   metadata: NormalizationMetadata;
+}
+
+/**
  * Normalized price data structure from various sources
  * This is the input to the aggregation engine
  */

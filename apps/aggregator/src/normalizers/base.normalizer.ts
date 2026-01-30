@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { RawPrice } from '@oracle-stocks/shared';
 import {
-  NormalizedPrice,
+  NormalizedPriceRecord,
   NormalizedSource,
   NormalizationMetadata,
 } from '../interfaces/normalized-price.interface';
@@ -36,7 +36,7 @@ export abstract class BaseNormalizer implements Normalizer {
   /**
    * Normalize a single raw price record
    */
-  normalize(rawPrice: RawPrice): NormalizedPrice {
+  normalize(rawPrice: RawPrice): NormalizedPriceRecord {
     this.validateRawPrice(rawPrice);
 
     const transformations: string[] = [];
@@ -78,8 +78,8 @@ export abstract class BaseNormalizer implements Normalizer {
   /**
    * Normalize multiple raw price records, skipping failures
    */
-  normalizeMany(rawPrices: RawPrice[]): NormalizedPrice[] {
-    const results: NormalizedPrice[] = [];
+  normalizeMany(rawPrices: RawPrice[]): NormalizedPriceRecord[] {
+    const results: NormalizedPriceRecord[] = [];
 
     for (const rawPrice of rawPrices) {
       try {

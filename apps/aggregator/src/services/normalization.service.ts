@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { RawPrice } from '@oracle-stocks/shared';
 import {
-  NormalizedPrice,
+  NormalizedPriceRecord,
   NormalizedSource,
 } from '../interfaces/normalized-price.interface';
 import {
@@ -74,7 +74,7 @@ export class NormalizationService implements OnModuleInit {
    * Normalize a single raw price
    * @throws NormalizationException if no suitable normalizer found
    */
-  normalize(rawPrice: RawPrice): NormalizedPrice {
+  normalize(rawPrice: RawPrice): NormalizedPriceRecord {
     const normalizer = this.findNormalizer(rawPrice);
 
     if (!normalizer) {
@@ -94,8 +94,8 @@ export class NormalizationService implements OnModuleInit {
   /**
    * Normalize multiple raw prices (skips failures)
    */
-  normalizeMany(rawPrices: RawPrice[]): NormalizedPrice[] {
-    const results: NormalizedPrice[] = [];
+  normalizeMany(rawPrices: RawPrice[]): NormalizedPriceRecord[] {
+    const results: NormalizedPriceRecord[] = [];
 
     for (const rawPrice of rawPrices) {
       try {
@@ -118,7 +118,7 @@ export class NormalizationService implements OnModuleInit {
    * Normalize multiple raw prices with detailed error reporting
    */
   normalizeManyWithErrors(rawPrices: RawPrice[]): NormalizationResult {
-    const successful: NormalizedPrice[] = [];
+    const successful: NormalizedPriceRecord[] = [];
     const failed: NormalizationFailure[] = [];
 
     for (const rawPrice of rawPrices) {
@@ -145,8 +145,8 @@ export class NormalizationService implements OnModuleInit {
    */
   normalizeBySource(
     rawPrices: RawPrice[],
-  ): Map<NormalizedSource, NormalizedPrice[]> {
-    const result = new Map<NormalizedSource, NormalizedPrice[]>();
+  ): Map<NormalizedSource, NormalizedPriceRecord[]> {
+    const result = new Map<NormalizedSource, NormalizedPriceRecord[]>();
 
     for (const rawPrice of rawPrices) {
       try {

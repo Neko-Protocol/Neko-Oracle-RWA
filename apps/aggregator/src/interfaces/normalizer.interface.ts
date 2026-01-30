@@ -1,5 +1,5 @@
 import { RawPrice } from '@oracle-stocks/shared';
-import { NormalizedPrice, NormalizedSource } from './normalized-price.interface';
+import { NormalizedPriceRecord, NormalizedSource } from './normalized-price.interface';
 
 /**
  * Interface for source-specific normalization strategies.
@@ -27,21 +27,21 @@ export interface Normalizer {
    * @param rawPrice - The raw price to normalize
    * @returns Normalized price or throws NormalizationException
    */
-  normalize(rawPrice: RawPrice): NormalizedPrice;
+  normalize(rawPrice: RawPrice): NormalizedPriceRecord;
 
   /**
    * Normalize multiple raw price records
    * @param rawPrices - Array of raw prices to normalize
    * @returns Array of normalized prices (invalid entries filtered out)
    */
-  normalizeMany(rawPrices: RawPrice[]): NormalizedPrice[];
+  normalizeMany(rawPrices: RawPrice[]): NormalizedPriceRecord[];
 }
 
 /**
  * Result type for batch normalization with error tracking
  */
 export interface NormalizationResult {
-  successful: NormalizedPrice[];
+  successful: NormalizedPriceRecord[];
   failed: NormalizationFailure[];
 }
 
