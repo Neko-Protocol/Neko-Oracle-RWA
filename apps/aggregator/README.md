@@ -26,6 +26,19 @@ The Aggregator service is responsible for calculating a single consensus price p
   - Per-source weight configuration
   - Custom aggregation parameters
 
+## API Endpoints (Health, Metrics & Debug)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Full health check. Returns **200** if all configured dependencies (Redis, Ingestor) are healthy, **503** otherwise. Used for overall service health. |
+| `/ready` | GET | Readiness probe for Kubernetes. Same checks as `/health`; returns 200 when the service can accept traffic. |
+| `/live` | GET | Liveness probe for Kubernetes. Returns 200 when the process is alive (no dependency checks). |
+| `/status` | GET | Detailed system information: uptime, memory usage, dependency check results, and version. |
+| `/metrics` | GET | Prometheus metrics in [exposition format](https://prometheus.io/docs/instrumenting/exposition_formats/). Scrape this endpoint for aggregation count, latency, errors, and default Node.js metrics. |
+| `/debug/prices` | GET | Last aggregated and normalized prices held in memory. Useful for debugging without hitting external systems. |
+
+**Health checks**: When `REDIS_URL` or `INGESTOR_URL` are set, the health check verifies connectivity. If a configured dependency is unreachable, `/health` and `/ready` return 503. If not set, that dependency is skipped (not included in the check).
+
 ## Architecture
 
 ```
@@ -43,6 +56,17 @@ aggregator/
 │   │       └── trimmed-mean.aggregator.ts
 │   ├── services/
 │   │   └── aggregation.service.ts   # Main aggregation service
+│   ├── health/               # Health checks (Terminus)
+│   │   ├── health.controller.ts
+│   │   └── indicators/
+│   │       ├── redis.health.ts
+│   │       └── ingestor.health.ts
+│   ├── metrics/              # Prometheus metrics
+│   │   ├── metrics.controller.ts
+│   │   └── metrics.service.ts
+│   ├── debug/                # Debug endpoints
+│   │   ├── debug.controller.ts
+│   │   └── debug.service.ts
 │   ├── config/
 │   │   └── source-weights.config.ts  # Weight configuration
 │   └── app.module.ts
